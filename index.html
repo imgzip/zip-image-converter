@@ -129,7 +129,20 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
 .drop.over { border-color: var(--accent); background: var(--accent-soft); }
 .drop strong { font-family: var(--font-display); font-size: 19px; font-weight: 600; }
 .drop p { margin: 0; color: var(--muted); font-size: 13.5px; }
-.drop .src { font-family: var(--font-mono); font-size: 13px; color: var(--fg); background: var(--sunk); padding: 3px 10px; border-radius: 6px; margin-top: 4px; overflow-wrap: anywhere; }
+.loaded { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px 10px 16px; }
+.loaded svg { flex: none; color: var(--accent); }
+.loaded .name { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 13.5px; overflow-wrap: anywhere; }
+.loaded .name small { display: block; color: var(--muted); font-family: var(--font-body); font-size: 12.5px; }
+.btn-remove {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--bad);
+  border-radius: 7px; padding: 6px 12px; font: 600 13px var(--font-body); cursor: pointer;
+}
+.btn-remove:hover { border-color: var(--bad); background: var(--bad-soft); }
+.row-x { border: 0; background: none; color: var(--muted); cursor: pointer; width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; }
+.row-x:hover { color: var(--bad); background: var(--bad-soft); }
+.row-x:disabled { opacity: 0.35; cursor: not-allowed; background: none; color: var(--muted); }
+.btn-remove:focus-visible, .row-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+td.x { width: 44px; padding: 5px 8px; text-align: right; }
 
 .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .btn {
@@ -265,8 +278,16 @@ td.m .sub { color: var(--muted); display: block; }
         <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true" style="color:var(--accent)"><path d="M12 15V3m0 0-4 4m4-4 4 4" fill="none"/><path d="M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" fill="none"/></svg>
         <strong id="drop-title">Drop a .zip here, or click to choose</strong>
         <p id="drop-hint">Images and PDFs inside are converted. Folders and names stay the same.</p>
-        <span class="src" id="src-name" hidden></span>
         <input type="file" id="file" hidden>
+      </div>
+
+      <div class="loaded" id="loaded" hidden>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 3h8l5 5v13H6z" fill="none"/><path d="M14 3v5h5" fill="none"/></svg>
+        <span class="name"><span id="loaded-name"></span><small id="loaded-meta"></small></span>
+        <button type="button" class="btn-remove" id="remove">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none"/></svg>
+          Remove
+        </button>
       </div>
 
       <div class="actions">
@@ -281,7 +302,7 @@ td.m .sub { color: var(--muted); display: block; }
 
       <div class="table-wrap">
         <table>
-          <thead><tr><th>File</th><th>Original</th><th>Converted</th><th>Status</th></tr></thead>
+          <thead><tr><th>File</th><th>Original</th><th>Converted</th><th>Status</th><th aria-label="Remove"></th></tr></thead>
           <tbody id="rows"></tbody>
         </table>
       </div>
@@ -328,6 +349,13 @@ td.m .sub { color: var(--muted); display: block; }
   const isWork = (e, s) => e.isImage || (e.isPdf && s.pdf);
 
   function clearOutput() { output = null; $("save").disabled = true; $("save").textContent = "Download"; }
+
+  // Forget the uploaded file entirely, as if nothing had been chosen.
+  function clearUpload() {
+    entries = []; clearOutput(); notice(""); setStatus("");
+    $("summary").hidden = true; $("loaded").hidden = true; $("convert").disabled = true;
+    render();
+  }
 
   function syncSettingsUI() {
     const s = settings();
@@ -381,7 +409,7 @@ td.m .sub { color: var(--muted); display: block; }
     try { localStorage.setItem("zic-mode", m); } catch (_) {}
     if (fromUser) {
       const hadSample = !entries.length || entries.every((e) => e.sample);
-      entries = []; clearOutput(); notice(""); $("summary").hidden = true; $("src-name").hidden = true; setStatus("");
+      clearUpload();
       syncSettingsUI();
       if (hadSample && !busy) loadSample().then(run).catch(() => {});
     } else syncSettingsUI();
@@ -575,16 +603,37 @@ td.m .sub { color: var(--muted); display: block; }
     }
     entries.forEach((e) => (e.sample = !!isSample));
     sourceName = f.name.replace(/\.[^.]+$/, "");
-    $("src-name").textContent = f.name + (isSample ? " (example)" : "");
-    $("src-name").hidden = false;
+    $("loaded-name").textContent = f.name + (isSample ? " (example)" : "");
+    $("loaded-meta").textContent = kb(f.size);
+    $("loaded").hidden = false;
+    if (m === "zip" && !entries.some((e) => e.isImage || e.isPdf)) notice("No images or PDFs found in this zip.", "bad");
+    describeLoaded();
+    render();
+  }
+
+  function describeLoaded() {
     const imgs = entries.filter((e) => e.isImage).length;
     const pdfs = entries.filter((e) => e.isPdf).length;
     const rest = entries.length - imgs - pdfs;
-    if (m === "zip" && !imgs && !pdfs) notice("No images or PDFs found in this zip.", "bad");
-    setStatus(m === "zip"
+    setStatus(mode() === "zip"
       ? [imgs && plural(imgs, "image"), pdfs && plural(pdfs, "PDF"), rest && plural(rest, "other file")].filter(Boolean).join(", ") + " ready."
       : "Ready to convert.");
     $("convert").disabled = !entries.some((e) => isWork(e, settings()));
+  }
+
+  // Take one file out of an uploaded zip. If it was already converted, rebuild the download without it.
+  async function removeEntry(i) {
+    if (busy || !entries[i]) return;
+    const name = entries[i].path.split("/").pop();
+    entries.splice(i, 1);
+    if (!entries.length) { clearUpload(); notice(`Removed ${name}. Nothing left to convert.`); return; }
+    notice(`Removed ${name}.`);
+    if (output) {
+      busy = true; render();
+      await pack(settings());
+      busy = false; $("convert").disabled = false;
+      setStatus(`Removed ${name}. Download updated.`);
+    } else describeLoaded();
     render();
   }
 
@@ -611,8 +660,16 @@ td.m .sub { color: var(--muted); display: block; }
       done++; bar.style.width = (done / work.length) * 100 + "%";
     }
     render();
+    await pack(s);
+    $("progress").hidden = true; bar.style.width = "0";
+    busy = false; $("convert").disabled = false; render();
+  }
 
-    // Collect output files. Other files go first so converted names never collide with them.
+  // Build the download from the converted results and show the summary.
+  async function pack(s) {
+    clearOutput();
+    const work = entries.filter((e) => isWork(e, s));
+    // Other files go first so converted names never collide with them.
     const outs = []; const used = new Set();
     let before = 0, after = 0, ok = 0, kept = 0, failed = 0, scaled = 0, pdfPages = 0;
     for (const e of entries) {
@@ -651,7 +708,6 @@ td.m .sub { color: var(--muted); display: block; }
       output = { filename: `${sourceName}_${EXT_FOR[s.mime]}.zip`, blob: await zip.generateAsync({ type: "blob", compression: "STORE" }) };
       $("save").textContent = "Download zip";
     }
-    $("progress").hidden = true; bar.style.width = "0";
 
     const sm = $("summary");
     sm.innerHTML = (s.mode === "pdf" || !ok ? "" : `<span>Converted <b>${ok}</b></span>`) + (pdfPages ? `<span>PDF pages <b>${pdfPages}</b></span>` : "") +
@@ -664,7 +720,7 @@ td.m .sub { color: var(--muted); display: block; }
       : `This file couldn't be converted: ${work[0].result.error}`, "bad");
     if (s.mode !== "zip" && failed) clearOutput();
     setStatus(failed && s.mode !== "zip" ? "" : "Done.");
-    render(); busy = false; $("convert").disabled = false; $("save").disabled = !output;
+    $("save").disabled = !output;
   }
 
   // Outside claude.ai (e.g. GitHub Pages) a plain browser download works.
@@ -703,31 +759,38 @@ td.m .sub { color: var(--muted); display: block; }
     const s = settings();
     const shown = entries.filter((e) => isWork(e, s) || s.keepOther);
     if (!shown.length) {
-      tb.innerHTML = `<tr><td colspan="4" class="empty">Nothing uploaded yet. Add ${MODES[s.mode].noun} in step 3, or load an example to see how it works.</td></tr>`;
+      tb.innerHTML = `<tr><td colspan="5" class="empty">Nothing uploaded yet. Add ${MODES[s.mode].noun} in step 3, or load an example to see how it works.</td></tr>`;
       return;
     }
-    tb.innerHTML = shown.map((e) => {
-      const parts = e.path.split("/"); const name = parts.pop(); const dir = parts.join("/");
-      const fileCell = `<td class="file">${dir ? `<span class="dir">${esc(dir)}/</span>` : ""}${esc(name)}${e.sample ? ' <span class="example-tag">example</span>' : ""}</td>`;
-      const orig = `<td class="m">${kb(e.blob.size)}<span class="sub">${ext(e.path).toUpperCase() || "—"}</span></td>`;
-      if (!isWork(e, s)) return `<tr>${fileCell}${orig}<td class="m">—</td><td><span class="pill">Copied as is</span></td></tr>`;
-      const r = e.result;
-      if (!r) return `<tr>${fileCell}${orig}<td class="m">—</td><td><span class="pill">Waiting</span></td></tr>`;
-      if (r.state === "run") return `<tr>${fileCell}${orig}<td class="m">…</td><td><span class="pill run">Working</span></td></tr>`;
-      if (r.state === "bad") return `<tr>${fileCell}${orig}<td class="m">—</td><td><span class="pill bad">Failed</span><span class="hint" style="display:block;margin-top:4px">${esc(r.error)}</span></td></tr>`;
-      if (r.pages) {
-        const total = r.pages.reduce((n, p) => n + p.blob.size, 0);
-        const largest = Math.max(...r.pages.map((p) => p.blob.size));
-        const n = r.pages.length, anyScaled = r.pages.some((p) => p.scaled);
-        const sub = `${n} page${n === 1 ? "" : "s"} · ${r.pages[0].w}×${r.pages[0].h}${n > 1 ? ` · largest ${kb(largest)}` : ""}`;
-        const pill = `<span class="pill ${anyScaled ? "warn" : "ok"}">PDF → ${plural(n, "image")}${anyScaled ? " · resized" : ""}</span>`;
-        return `<tr>${fileCell}${orig}<td class="m">${kb(total)}<span class="sub">${sub}</span></td><td>${pill}</td></tr>`;
-      }
-      const q = r.q != null ? ` · q${Math.round(r.q * 100)}` : "";
-      const conv = `<td class="m">${kb(r.blob.size)}<span class="sub">${r.w}×${r.h}${q}</span></td>`;
-      const pill = r.kept ? `<span class="pill">Already fits</span>` : r.scaled ? `<span class="pill warn">Converted · resized</span>` : `<span class="pill ok">Converted</span>`;
-      return `<tr>${fileCell}${orig}${conv}<td>${pill}</td></tr>`;
-    }).join("");
+    const x = (e) => {
+      const name = esc(e.path.split("/").pop());
+      return `<td class="x"><button type="button" class="row-x" data-i="${entries.indexOf(e)}" aria-label="Remove ${name}" title="Remove ${name}"${busy ? " disabled" : ""}>` +
+        `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none"/></svg></button></td>`;
+    };
+    tb.innerHTML = shown.map((e) => rowFor(e, s).replace("</tr>", x(e) + "</tr>")).join("");
+  }
+
+  function rowFor(e, s) {
+    const parts = e.path.split("/"); const name = parts.pop(); const dir = parts.join("/");
+    const fileCell = `<td class="file">${dir ? `<span class="dir">${esc(dir)}/</span>` : ""}${esc(name)}${e.sample ? ' <span class="example-tag">example</span>' : ""}</td>`;
+    const orig = `<td class="m">${kb(e.blob.size)}<span class="sub">${ext(e.path).toUpperCase() || "—"}</span></td>`;
+    if (!isWork(e, s)) return `<tr>${fileCell}${orig}<td class="m">—</td><td><span class="pill">Copied as is</span></td></tr>`;
+    const r = e.result;
+    if (!r) return `<tr>${fileCell}${orig}<td class="m">—</td><td><span class="pill">Waiting</span></td></tr>`;
+    if (r.state === "run") return `<tr>${fileCell}${orig}<td class="m">…</td><td><span class="pill run">Working</span></td></tr>`;
+    if (r.state === "bad") return `<tr>${fileCell}${orig}<td class="m">—</td><td><span class="pill bad">Failed</span><span class="hint" style="display:block;margin-top:4px">${esc(r.error)}</span></td></tr>`;
+    if (r.pages) {
+      const total = r.pages.reduce((n, p) => n + p.blob.size, 0);
+      const largest = Math.max(...r.pages.map((p) => p.blob.size));
+      const n = r.pages.length, anyScaled = r.pages.some((p) => p.scaled);
+      const sub = `${n} page${n === 1 ? "" : "s"} · ${r.pages[0].w}×${r.pages[0].h}${n > 1 ? ` · largest ${kb(largest)}` : ""}`;
+      const pill = `<span class="pill ${anyScaled ? "warn" : "ok"}">PDF → ${plural(n, "image")}${anyScaled ? " · resized" : ""}</span>`;
+      return `<tr>${fileCell}${orig}<td class="m">${kb(total)}<span class="sub">${sub}</span></td><td>${pill}</td></tr>`;
+    }
+    const q = r.q != null ? ` · q${Math.round(r.q * 100)}` : "";
+    const conv = `<td class="m">${kb(r.blob.size)}<span class="sub">${r.w}×${r.h}${q}</span></td>`;
+    const pill = r.kept ? `<span class="pill">Already fits</span>` : r.scaled ? `<span class="pill warn">Converted · resized</span>` : `<span class="pill ok">Converted</span>`;
+    return `<tr>${fileCell}${orig}${conv}<td>${pill}</td></tr>`;
   }
 
   // ---------- examples ----------
@@ -781,6 +844,18 @@ td.m .sub { color: var(--muted); display: block; }
   ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", (e) => loadFiles(e.dataTransfer.files));
+  $("remove").addEventListener("click", () => {
+    if (busy) return;
+    const name = $("loaded-name").textContent;
+    clearUpload();
+    notice(`Removed ${name}. Upload another file in step 3.`);
+  });
+  $("rows").addEventListener("click", (ev) => {
+    const b = ev.target.closest(".row-x");
+    if (!b) return;
+    // In Image and PDF mode the one row is the whole upload.
+    if (mode() === "zip") removeEntry(+b.dataset.i); else $("remove").click();
+  });
   $("convert").addEventListener("click", run);
   $("save").addEventListener("click", save);
   $("sample").addEventListener("click", () => loadSample().then(run).catch(() => {}));
