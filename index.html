@@ -407,12 +407,8 @@ td.m .sub { color: var(--muted); display: block; }
     $("file").accept = cfg.accept;
     $("drop").setAttribute("aria-label", "Choose " + cfg.noun);
     try { localStorage.setItem("zic-mode", m); } catch (_) {}
-    if (fromUser) {
-      const hadSample = !entries.length || entries.every((e) => e.sample);
-      clearUpload();
-      syncSettingsUI();
-      if (hadSample && !busy) loadSample().then(run).catch(() => {});
-    } else syncSettingsUI();
+    if (fromUser) clearUpload();
+    syncSettingsUI();
   }
   document.querySelectorAll('input[name="mode"]').forEach((r) => r.addEventListener("change", () => { if (!busy) applyMode(true); }));
 
@@ -862,9 +858,7 @@ td.m .sub { color: var(--muted); display: block; }
 
   try { const saved = localStorage.getItem("zic-mode"); if (saved && MODES[saved]) $("mode-" + saved).checked = true; } catch (_) {}
   applyMode(false);
-  // Open in a working state: load and convert an example for the chosen mode.
-  if (window.JSZip) loadSample().then(run).catch(() => {});
-  else notice("The zip library didn't load. Check your connection and reload the page.", "bad");
+  if (!window.JSZip) notice("The zip library didn't load. Check your connection and reload the page.", "bad");
 })();
 </script>
 </body>
