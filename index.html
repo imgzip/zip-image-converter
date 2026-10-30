@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Convert images, PDF pages or a whole zip to JPG, PNG or WebP with a size limit. Runs in your browser; files are never uploaded.">
+<title>Zip Image Converter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&display=swap">
+<style>
+/* Layout: step 1 (what you're converting) spans the top; below it the settings rail (step 2) sits beside upload + results (step 3); stacks on phones. */
+:root {
+  --bg: #f3f5f4;
+  --surface: #ffffff;
+  --sunk: #e8ecea;
+  --fg: #17201d;
+  --muted: #5b6863;
+  --line: #d4dbd8;
+  --accent: #0f6b5c;
+  --accent-ink: #ffffff;
+  --accent-soft: #d7ebe6;
+  --ok: #1f7a3d;
+  --ok-soft: #dcefe1;
+  --warn: #9a5b00;
+  --warn-soft: #f6e8cf;
+  --bad: #b3261e;
+  --bad-soft: #f7dcda;
+  --font-display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111715; --surface: #18201d; --sunk: #0d1311; --fg: #e4ebe8; --muted: #93a39d; --line: #2b3632;
+    --accent: #4cc2a8; --accent-ink: #062520; --accent-soft: #173a33;
+    --ok: #6fd28f; --ok-soft: #173826; --warn: #f0b45a; --warn-soft: #3a2b12; --bad: #f08a83; --bad-soft: #3d1b19;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111715; --surface: #18201d; --sunk: #0d1311; --fg: #e4ebe8; --muted: #93a39d; --line: #2b3632;
+  --accent: #4cc2a8; --accent-ink: #062520; --accent-soft: #173a33;
+  --ok: #6fd28f; --ok-soft: #173826; --warn: #f0b45a; --warn-soft: #3a2b12; --bad: #f08a83; --bad-soft: #3d1b19;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+h1 { font-family: var(--font-display); font-size: clamp(26px, 4vw, 34px); line-height: 1.1; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+.privacy { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); background: var(--sunk); padding: 6px 12px; border-radius: 999px; }
+.privacy svg { flex: none; }
+
+.step-head { display: flex; align-items: center; gap: 10px; }
+.step-n {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--accent); color: var(--accent-ink); font: 600 13px var(--font-mono);
+}
+.step-title { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin: 0; }
+.step1 { display: flex; flex-direction: column; gap: 12px; }
+
+.modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 620px) { .modes { grid-template-columns: minmax(0, 1fr); } }
+.modes input { position: absolute; opacity: 0; pointer-events: none; }
+.modes label {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 14px; align-items: center; cursor: pointer;
+  background: var(--surface); border: 1.5px solid var(--line); border-radius: var(--radius); padding: 14px 16px;
+  transition: border-color .15s, background .15s;
+}
+.modes label:hover { border-color: var(--accent); }
+.modes label svg { grid-row: span 2; color: var(--muted); }
+.modes label b { font-size: 16px; font-weight: 600; }
+.modes label small { color: var(--muted); font-size: 13px; line-height: 1.35; }
+.modes input:checked + label { border-color: var(--accent); background: var(--accent-soft); }
+.modes input:checked + label svg { color: var(--accent); }
+.modes input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+.label-caps { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; }
+.field { display: flex; flex-direction: column; gap: 8px; }
+.field > label, .field > .flabel { font-weight: 500; font-size: 14px; }
+.hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--sunk); border-radius: 8px; padding: 3px; gap: 3px; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label { text-align: center; padding: 7px 4px; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 14px; color: var(--muted); }
+.seg input:checked + label { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+.seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.row { display: flex; align-items: center; gap: 10px; }
+input[type="range"] { flex: 1; accent-color: var(--accent); min-width: 0; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; }
+.inline-num { display: flex; align-items: center; gap: 8px; }
+.inline-num input[type="number"] {
+  width: 110px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--fg);
+  font-family: var(--font-mono); font-size: 14px;
+}
+.inline-num input:disabled { opacity: 0.5; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+.check input { margin-top: 3px; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.check span small { display: block; color: var(--muted); font-size: 12.5px; }
+input[type="color"] { width: 40px; height: 30px; border: 1px solid var(--line); border-radius: 6px; background: none; padding: 2px; cursor: pointer; }
+
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip-btn {
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 999px; padding: 5px 12px;
+  font: 500 13px var(--font-body); cursor: pointer;
+}
+.chip-btn:hover { border-color: var(--accent); color: var(--accent); }
+.chip-btn:focus-visible, .btn:focus-visible, .drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
+
+.main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.drop {
+  border: 2px dashed var(--line); border-radius: var(--radius); background: var(--surface); padding: 28px 20px;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; cursor: pointer; transition: border-color .15s, background .15s;
+}
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop strong { font-family: var(--font-display); font-size: 19px; font-weight: 600; }
+.drop p { margin: 0; color: var(--muted); font-size: 13.5px; }
+.drop .src { font-family: var(--font-mono); font-size: 13px; color: var(--fg); background: var(--sunk); padding: 3px 10px; border-radius: 6px; margin-top: 4px; overflow-wrap: anywhere; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.btn {
+  border: 1px solid transparent; border-radius: 8px; padding: 10px 18px; font: 600 14.5px var(--font-body); cursor: pointer;
+  background: var(--accent); color: var(--accent-ink);
+}
+.btn.secondary { background: var(--surface); color: var(--fg); border-color: var(--line); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.status { font-size: 13.5px; color: var(--muted); }
+.notice { font-size: 13.5px; padding: 10px 14px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); }
+.notice.bad { background: var(--bad-soft); color: var(--bad); }
+.notice.ok { background: var(--ok-soft); color: var(--ok); }
+
+.progress { height: 6px; background: var(--sunk); border-radius: 999px; overflow: hidden; }
+.progress > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+
+.summary { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 14px; }
+.summary b { font-family: var(--font-mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+.table-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 640px; }
+th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--sunk); }
+td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.file { overflow-wrap: anywhere; min-width: 200px; }
+td.file .dir { color: var(--muted); font-size: 12px; display: block; }
+td.m { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12.5px; }
+td.m .sub { color: var(--muted); display: block; }
+.pill { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; background: var(--sunk); color: var(--muted); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.run { background: var(--accent-soft); color: var(--accent); }
+.empty { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 14px; }
+.example-tag { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--warn); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Zip Image Converter</h1>
+      <p class="lede">Convert a single image, every page of a PDF, or a whole zip of documents to JPG, PNG or WebP, with an optional size limit per file.</p>
+    </div>
+    <span class="privacy">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2" fill="none"/><path d="M8 11V7a4 4 0 0 1 8 0v4" fill="none"/></svg>
+      Runs in your browser. Files are never uploaded.
+    </span>
+  </header>
+
+  <section class="step1">
+    <div class="step-head"><span class="step-n">1</span><h2 class="step-title">What are you converting?</h2></div>
+    <div class="modes" role="radiogroup" aria-label="What are you converting">
+      <input type="radio" name="mode" id="mode-image" value="image">
+      <label for="mode-image">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none"/><circle cx="9" cy="10" r="1.8" fill="none"/><path d="m4 18 5-5 4 4 3-3 4 4" fill="none"/></svg>
+        <b>Image</b><small>One JPG, PNG, WebP, GIF, BMP or AVIF</small>
+      </label>
+      <input type="radio" name="mode" id="mode-pdf" value="pdf">
+      <label for="mode-pdf">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6 3h8l5 5v13H6z" fill="none"/><path d="M14 3v5h5M9 13h7M9 17h5" fill="none"/></svg>
+        <b>PDF</b><small>Each page becomes its own image</small>
+      </label>
+      <input type="radio" name="mode" id="mode-zip" value="zip" checked>
+      <label for="mode-zip">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" fill="none"/><path d="M12 3v2m0 2v2m0 2v2" fill="none"/><rect x="10.5" y="13" width="3" height="4" rx="1" fill="none"/></svg>
+        <b>Zip</b><small>Images and PDFs in folders, all at once</small>
+      </label>
+    </div>
+  </section>
+
+  <div class="grid">
+    <form class="panel" id="settings" autocomplete="off">
+      <div class="step-head"><span class="step-n">2</span><h2 class="step-title">Output settings</h2></div>
+      <div class="field">
+        <p class="label-caps">Presets</p>
+        <div class="presets">
+          <button type="button" class="chip-btn" data-preset="portal">Upload portal · JPG ≤ 250 KB</button>
+          <button type="button" class="chip-btn" data-preset="web">Web · WebP ≤ 200 KB</button>
+          <button type="button" class="chip-btn" data-preset="png">Lossless PNG</button>
+        </div>
+      </div>
+      <hr>
+      <div class="field">
+        <span class="flabel">Convert to</span>
+        <div class="seg" role="radiogroup" aria-label="Output format">
+          <input type="radio" name="fmt" id="fmt-jpg" value="image/jpeg" checked><label for="fmt-jpg">JPG</label>
+          <input type="radio" name="fmt" id="fmt-png" value="image/png"><label for="fmt-png">PNG</label>
+          <input type="radio" name="fmt" id="fmt-webp" value="image/webp"><label for="fmt-webp">WebP</label>
+        </div>
+      </div>
+
+      <div class="field" id="f-pdf">
+        <label class="check" id="pdf-on-row"><input type="checkbox" id="pdf-on" checked><span>Turn PDFs into images<small>Unticked, PDFs in the zip are copied as they are.</small></span></label>
+        <label for="pdf-dpi">Page resolution</label>
+        <div class="inline-num"><input type="number" id="pdf-dpi" min="50" max="600" step="10" value="150"><span class="num">DPI</span></div>
+        <p class="hint">150 DPI makes an A4 page 1240×1754 px. Use 200–300 for small print. Pages are named “file_page-1”, “file_page-2”; a one-page PDF keeps its name.</p>
+      </div>
+
+      <div class="field" id="quality-field">
+        <label for="quality">Quality</label>
+        <div class="row"><input type="range" id="quality" min="40" max="100" step="1" value="92"><span class="num" id="quality-out">92</span></div>
+        <p class="hint">Starting quality. With a size limit, quality steps down only as far as each image needs.</p>
+      </div>
+
+      <div class="field">
+        <label class="check"><input type="checkbox" id="limit-on" checked><span>Limit file size</span></label>
+        <div class="inline-num"><input type="number" id="limit-kb" min="10" max="50000" step="10" value="250" aria-label="Maximum file size in KB"><span class="num" id="limit-unit">KB per image</span></div>
+        <p class="hint" id="limit-hint">Lowers quality first, then shrinks dimensions if still too big.</p>
+      </div>
+
+      <div class="field">
+        <label class="check"><input type="checkbox" id="dim-on"><span>Limit dimensions</span></label>
+        <div class="inline-num"><input type="number" id="dim-px" min="64" max="20000" step="10" value="2000" disabled aria-label="Longest side in pixels"><span class="num">px longest side</span></div>
+      </div>
+
+      <div class="field" id="bg-field">
+        <div class="row"><input type="color" id="bg" value="#ffffff" aria-label="Background for transparent areas"><label for="bg">Fill for transparent areas</label></div>
+        <p class="hint">JPG has no transparency, so see-through areas get this color.</p>
+      </div>
+
+      <hr id="keep-hr">
+      <div class="field" id="f-keep">
+        <label class="check" id="keep-ok-row"><input type="checkbox" id="keep-ok" checked><span>Leave files that already fit<small id="keep-ok-hint">Images already in the chosen format and within the limits are copied untouched.</small></span></label>
+        <label class="check" id="keep-other-row"><input type="checkbox" id="keep-other" checked><span>Include other files<small>Text files, documents and anything else in the zip are copied as they are.</small></span></label>
+      </div>
+    </form>
+
+    <section class="main">
+      <div class="step-head"><span class="step-n">3</span><h2 class="step-title" id="upload-title">Upload a zip</h2></div>
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a file">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true" style="color:var(--accent)"><path d="M12 15V3m0 0-4 4m4-4 4 4" fill="none"/><path d="M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" fill="none"/></svg>
+        <strong id="drop-title">Drop a .zip here, or click to choose</strong>
+        <p id="drop-hint">Images and PDFs inside are converted. Folders and names stay the same.</p>
+        <span class="src" id="src-name" hidden></span>
+        <input type="file" id="file" hidden>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn" id="convert" disabled>Convert</button>
+        <button type="button" class="btn secondary" id="save" disabled>Download</button>
+        <button type="button" class="chip-btn" id="sample">Load an example</button>
+        <span class="status" id="status"></span>
+      </div>
+      <div class="progress" id="progress" hidden><div></div></div>
+      <div id="notice" hidden></div>
+      <div class="summary" id="summary" hidden></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>File</th><th>Original</th><th>Converted</th><th>Status</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const IMG_EXT = ["jpg", "jpeg", "png", "webp", "gif", "bmp", "avif", "jfif", "heic", "heif", "tif", "tiff"];
+  const EXT_FOR = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+  const NAME_FOR = { "image/jpeg": "JPG", "image/png": "PNG", "image/webp": "WebP" };
+  const MODES = {
+    image: { upload: "Upload an image", title: "Drop an image here, or click to choose", hint: "JPG, PNG, WebP, GIF, BMP or AVIF.", accept: "image/*", noun: "an image" },
+    pdf: { upload: "Upload a PDF", title: "Drop a PDF here, or click to choose", hint: "Each page is saved as a separate image. Several pages download as a zip.", accept: ".pdf,application/pdf", noun: "a PDF" },
+    zip: { upload: "Upload a zip", title: "Drop a .zip here, or click to choose", hint: "Images and PDFs inside are converted. Folders and names stay the same.", accept: ".zip,application/zip,application/x-zip-compressed", noun: "a zip" },
+  };
+
+  let entries = [];      // { path, blob, isImage, isPdf, sample, result }
+  let sourceName = "images";
+  let output = null;     // { filename, blob }
+  let busy = false;
+
+  // ---------- mode & settings ----------
+  const mode = () => document.querySelector('input[name="mode"]:checked').value;
+  function settings() {
+    const m = mode();
+    const mime = document.querySelector('input[name="fmt"]:checked').value;
+    return {
+      mode: m,
+      mime,
+      quality: +$("quality").value / 100,
+      limit: $("limit-on").checked ? Math.max(1, +$("limit-kb").value || 250) * 1024 : 0,
+      maxDim: $("dim-on").checked ? Math.max(16, +$("dim-px").value || 2000) : 0,
+      bg: $("bg").value,
+      keepOk: m !== "pdf" && $("keep-ok").checked,
+      keepOther: m === "zip" && $("keep-other").checked,
+      pdf: m === "pdf" || (m === "zip" && $("pdf-on").checked),
+      dpi: Math.min(600, Math.max(50, +$("pdf-dpi").value || 150)),
+    };
+  }
+  const isWork = (e, s) => e.isImage || (e.isPdf && s.pdf);
+
+  function clearOutput() { output = null; $("save").disabled = true; $("save").textContent = "Download"; }
+
+  function syncSettingsUI() {
+    const s = settings();
+    $("quality-out").textContent = $("quality").value;
+    $("quality-field").hidden = s.mime === "image/png";
+    $("bg-field").hidden = s.mime !== "image/jpeg";
+    $("limit-kb").disabled = !$("limit-on").checked;
+    $("dim-px").disabled = !$("dim-on").checked;
+    // Show only the options that apply to what is being converted.
+    $("f-pdf").hidden = s.mode === "image";
+    $("pdf-on-row").hidden = s.mode !== "zip";
+    $("pdf-dpi").disabled = s.mode === "zip" && !$("pdf-on").checked;
+    $("keep-ok-row").hidden = s.mode === "pdf";
+    $("keep-other-row").hidden = s.mode !== "zip";
+    $("keep-hr").hidden = $("f-keep").hidden = s.mode === "pdf";
+    $("keep-ok-hint").textContent = s.mode === "image"
+      ? "If the image is already in the chosen format and within the limits, it is kept as is."
+      : "Images already in the chosen format and within the limits are copied untouched.";
+    $("limit-unit").textContent = s.mode === "pdf" ? "KB per page" : "KB per image";
+    $("limit-hint").textContent = s.mime === "image/png"
+      ? "PNG is lossless, so images over the limit are shrunk in dimensions."
+      : "Lowers quality first, then shrinks dimensions if still too big.";
+    $("convert").disabled = busy || !entries.some((e) => isWork(e, s));
+    if (output) { clearOutput(); setStatus("Settings changed. Convert again to apply them."); }
+    if (!busy) render();
+  }
+  $("settings").addEventListener("input", syncSettingsUI);
+  $("settings").addEventListener("change", syncSettingsUI);
+  $("settings").addEventListener("submit", (e) => e.preventDefault());
+  document.querySelectorAll("[data-preset]").forEach((b) => b.addEventListener("click", () => {
+    const p = b.dataset.preset;
+    const set = (fmt, q, lim, kbv, dim, px) => {
+      $("fmt-" + fmt).checked = true; $("quality").value = q;
+      $("limit-on").checked = lim; $("limit-kb").value = kbv;
+      $("dim-on").checked = dim; $("dim-px").value = px;
+    };
+    if (p === "portal") set("jpg", 92, true, 250, false, 2000);
+    if (p === "web") set("webp", 85, true, 200, true, 1920);
+    if (p === "png") set("png", 92, false, 250, false, 2000);
+    syncSettingsUI();
+  }));
+
+  function applyMode(fromUser) {
+    const m = mode();
+    const cfg = MODES[m];
+    $("upload-title").textContent = cfg.upload;
+    $("drop-title").textContent = cfg.title;
+    $("drop-hint").textContent = cfg.hint;
+    $("file").accept = cfg.accept;
+    $("drop").setAttribute("aria-label", "Choose " + cfg.noun);
+    try { localStorage.setItem("zic-mode", m); } catch (_) {}
+    if (fromUser) {
+      const hadSample = !entries.length || entries.every((e) => e.sample);
+      entries = []; clearOutput(); notice(""); $("summary").hidden = true; $("src-name").hidden = true; setStatus("");
+      syncSettingsUI();
+      if (hadSample && !busy) loadSample().then(run).catch(() => {});
+    } else syncSettingsUI();
+  }
+  document.querySelectorAll('input[name="mode"]').forEach((r) => r.addEventListener("change", () => { if (!busy) applyMode(true); }));
+
+  // ---------- helpers ----------
+  const ext = (p) => (p.split("/").pop().match(/\.([^.]+)$/) || [, ""])[1].toLowerCase();
+  const kb = (n) => n >= 1024 * 1024 ? (n / 1048576).toFixed(2) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const setStatus = (t) => { $("status").textContent = t; };
+  function notice(text, kind) {
+    const n = $("notice");
+    if (!text) { n.hidden = true; return; }
+    n.className = "notice" + (kind ? " " + kind : ""); n.textContent = text; n.hidden = false;
+  }
+  function toBlob(canvas, mime, q) {
+    return new Promise((res) => canvas.toBlob(res, mime, q));
+  }
+  async function decode(blob) {
+    try { return await createImageBitmap(blob, { imageOrientation: "from-image" }); }
+    catch (_) {
+      return await new Promise((res, rej) => {
+        const url = URL.createObjectURL(blob); const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); res(img); };
+        img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("This browser can't read this image type.")); };
+        img.src = url;
+      });
+    }
+  }
+  function sniffMime(path) {
+    const e = ext(path);
+    return { jpg: "image/jpeg", jpeg: "image/jpeg", jfif: "image/jpeg", png: "image/png", webp: "image/webp" }[e] || "";
+  }
+  function kindOf(f) {
+    if (/\.zip$/i.test(f.name) || f.type === "application/zip" || f.type === "application/x-zip-compressed") return "zip";
+    if (f.type === "application/pdf" || ext(f.name) === "pdf") return "pdf";
+    if (f.type.startsWith("image/") || IMG_EXT.includes(ext(f.name))) return "image";
+    return "other";
+  }
+
+  // ---------- PDF reader (loaded only when a PDF shows up) ----------
+  const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+  let pdfjsPromise = null;
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      const t = document.createElement("script"); t.src = src; t.onload = res;
+      t.onerror = () => rej(new Error("The PDF reader didn't load. Check your connection and try again."));
+      document.head.appendChild(t);
+    });
+  }
+  function loadPdfJs() {
+    // Loading the worker script too lets pdf.js run on the page itself, with no separate worker.
+    pdfjsPromise = pdfjsPromise || (async () => {
+      await loadScript(PDFJS + "pdf.min.js");
+      await loadScript(PDFJS + "pdf.worker.min.js");
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + "pdf.worker.min.js";
+      return window.pdfjsLib;
+    })().catch((e) => { pdfjsPromise = null; throw e; });
+    return pdfjsPromise;
+  }
+
+  // ---------- core conversion ----------
+  async function convertImage(entry, s) {
+    const srcMime = sniffMime(entry.path);
+    const img = await decode(entry.blob);
+    const w0 = img.width, h0 = img.height;
+    if (!w0 || !h0) throw new Error("Image has no pixels.");
+
+    // Already fits: same format, under size limit, within dimension limit.
+    if (s.keepOk && srcMime === s.mime && (!s.limit || entry.blob.size <= s.limit) && (!s.maxDim || Math.max(w0, h0) <= s.maxDim)) {
+      img.close && img.close();
+      return { blob: entry.blob, w: w0, h: h0, q: null, kept: true };
+    }
+    try { return { ...(await encodeFit(img, w0, h0, s)), kept: false }; }
+    finally { img.close && img.close(); }
+  }
+
+  async function convertPdf(entry, s, onPage) {
+    const pdfjs = await loadPdfJs();
+    let doc;
+    try { doc = await pdfjs.getDocument({ data: new Uint8Array(await entry.blob.arrayBuffer()), isEvalSupported: false }).promise; }
+    catch (err) {
+      throw new Error(err?.name === "PasswordException" ? "This PDF is password-protected." : "Couldn't read this PDF. It may be damaged.");
+    }
+    const pages = [];
+    try {
+      for (let i = 1; i <= doc.numPages; i++) {
+        onPage(i, doc.numPages);
+        const page = await doc.getPage(i);
+        const vp = page.getViewport({ scale: s.dpi / 72 });
+        const c = document.createElement("canvas");
+        c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        pages.push(await encodeFit(c, c.width, c.height, s));
+        page.cleanup(); c.width = c.height = 0;
+      }
+    } finally { await doc.destroy(); }
+    return { pages, kept: false };
+  }
+
+  // Encode a drawable (bitmap or canvas) to the target format, stepping quality then size down to fit the limit.
+  async function encodeFit(img, w0, h0, s) {
+    let scale = s.maxDim ? Math.min(1, s.maxDim / Math.max(w0, h0)) : 1;
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const lossy = s.mime !== "image/png";
+    const draw = () => {
+      canvas.width = Math.max(1, Math.round(w0 * scale));
+      canvas.height = Math.max(1, Math.round(h0 * scale));
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+      if (s.mime === "image/jpeg") { ctx.fillStyle = s.bg; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+      else ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+
+    let best = null;
+    for (let step = 0; step < 16; step++) {
+      draw();
+      const first = await toBlob(canvas, s.mime, lossy ? s.quality : undefined);
+      if (!first || first.type !== s.mime) throw new Error(`This browser can't save ${NAME_FOR[s.mime]} files. Try JPG or PNG, or use Chrome.`);
+      if (!s.limit || first.size <= s.limit) { best = { blob: first, q: lossy ? s.quality : null }; break; }
+      if (lossy) {
+        // Binary-search the highest quality that fits, down to 0.5.
+        let lo = 0.5, hi = s.quality, fit = null;
+        const floor = await toBlob(canvas, s.mime, lo);
+        if (floor.size <= s.limit) {
+          fit = { blob: floor, q: lo };
+          for (let i = 0; i < 6; i++) {
+            const mid = (lo + hi) / 2;
+            const b = await toBlob(canvas, s.mime, mid);
+            if (b.size <= s.limit) { fit = { blob: b, q: mid }; lo = mid; } else hi = mid;
+          }
+        }
+        if (fit) { best = fit; break; }
+      }
+      // Still too big: shrink in small steps for lossy formats so quality stays high; PNG jumps by the size ratio.
+      scale *= lossy ? 0.9 : Math.min(0.9, Math.max(0.5, Math.sqrt(s.limit / first.size) * 0.97));
+    }
+    if (!best) throw new Error("Couldn't get this image under the size limit.");
+    const out = { blob: best.blob, w: canvas.width, h: canvas.height, q: best.q, scaled: canvas.width !== w0 };
+    canvas.width = canvas.height = 0;
+    return out;
+  }
+
+  function outPath(path, mime, used) {
+    let base = path.replace(/\.[^./]+$/, "");
+    let p = base + "." + EXT_FOR[mime], n = 2;
+    while (used.has(p.toLowerCase())) p = `${base} (${n++}).${EXT_FOR[mime]}`;
+    used.add(p.toLowerCase());
+    return p;
+  }
+
+  // ---------- loading input ----------
+  async function loadFiles(fileList, isSample) {
+    const f = [...fileList][0];
+    if (!f || busy) return;
+    const m = mode();
+    const kind = kindOf(f);
+    if (kind !== m) {
+      const what = { zip: "a zip", pdf: "a PDF", image: "an image", other: "not an image, PDF or zip" }[kind];
+      notice(kind === "other"
+        ? `${f.name} is ${what}, so it can't be converted.`
+        : `${f.name} is ${what}. Choose “${kind === "zip" ? "Zip" : kind === "pdf" ? "PDF" : "Image"}” in step 1 to convert it.`, "bad");
+      return;
+    }
+    notice(""); clearOutput(); $("summary").hidden = true;
+    entries = [];
+    if (m === "zip") {
+      try {
+        const zip = await JSZip.loadAsync(f);
+        const items = [];
+        zip.forEach((path, obj) => {
+          if (obj.dir || /(^|\/)__MACOSX\//.test(path) || /(^|\/)\.DS_Store$/.test(path) || /(^|\/)\._/.test(path)) return;
+          items.push([path, obj]);
+        });
+        for (const [path, obj] of items) {
+          const blob = await obj.async("blob");
+          entries.push({ path, blob, isImage: IMG_EXT.includes(ext(path)), isPdf: ext(path) === "pdf" });
+        }
+      } catch (err) {
+        notice("Couldn't open that zip. It may be damaged or password-protected.", "bad");
+        entries = []; render(); return;
+      }
+      entries.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+    } else {
+      entries.push({ path: f.name, blob: f, isImage: m === "image", isPdf: m === "pdf" });
+    }
+    entries.forEach((e) => (e.sample = !!isSample));
+    sourceName = f.name.replace(/\.[^.]+$/, "");
+    $("src-name").textContent = f.name + (isSample ? " (example)" : "");
+    $("src-name").hidden = false;
+    const imgs = entries.filter((e) => e.isImage).length;
+    const pdfs = entries.filter((e) => e.isPdf).length;
+    const rest = entries.length - imgs - pdfs;
+    if (m === "zip" && !imgs && !pdfs) notice("No images or PDFs found in this zip.", "bad");
+    setStatus(m === "zip"
+      ? [imgs && plural(imgs, "image"), pdfs && plural(pdfs, "PDF"), rest && plural(rest, "other file")].filter(Boolean).join(", ") + " ready."
+      : "Ready to convert.");
+    $("convert").disabled = !entries.some((e) => isWork(e, settings()));
+    render();
+  }
+
+  // ---------- running ----------
+  async function run() {
+    if (busy || !entries.length) return;
+    busy = true; $("convert").disabled = true; clearOutput(); notice("");
+    const s = settings();
+    const work = entries.filter((e) => isWork(e, s));
+    entries.forEach((e) => (e.result = null));
+    $("progress").hidden = false;
+    const bar = $("progress").firstElementChild;
+    let done = 0;
+    for (const e of work) {
+      e.result = { state: "run" }; render();
+      setStatus(work.length > 1 ? `Converting ${done + 1} of ${work.length}…` : "Converting…");
+      try {
+        const r = e.isPdf
+          ? await convertPdf(e, s, (i, n) => setStatus(`${work.length > 1 ? `Converting ${done + 1} of ${work.length} · ` : ""}PDF page ${i} of ${n}…`))
+          : await convertImage(e, s);
+        e.result = { state: "ok", ...r };
+      }
+      catch (err) { e.result = { state: "bad", error: err.message || String(err) }; }
+      done++; bar.style.width = (done / work.length) * 100 + "%";
+    }
+    render();
+
+    // Collect output files. Other files go first so converted names never collide with them.
+    const outs = []; const used = new Set();
+    let before = 0, after = 0, ok = 0, kept = 0, failed = 0, scaled = 0, pdfPages = 0;
+    for (const e of entries) {
+      if (!isWork(e, s) && s.keepOther) { outs.push({ path: e.path, blob: e.blob }); used.add(e.path.toLowerCase()); }
+    }
+    for (const e of entries) {
+      if (!isWork(e, s)) continue;
+      before += e.blob.size;
+      const r = e.result;
+      if (r.state === "ok" && r.pages) {
+        const base = e.path.replace(/\.[^./]+$/, "");
+        r.pages.forEach((pg, i) => {
+          pg.outPath = outPath(r.pages.length === 1 ? e.path : `${base}_page-${i + 1}.pdf`, s.mime, used);
+          outs.push({ path: pg.outPath, blob: pg.blob }); after += pg.blob.size;
+          if (pg.scaled) scaled++;
+        });
+        ok++; pdfPages += r.pages.length;
+      } else if (r.state === "ok") {
+        const p = r.kept ? e.path : outPath(e.path, s.mime, used);
+        if (r.kept) used.add(p.toLowerCase());
+        r.outPath = p; outs.push({ path: p, blob: r.blob }); after += r.blob.size;
+        r.kept ? kept++ : ok++; if (r.scaled) scaled++;
+      } else {
+        outs.push({ path: e.path, blob: e.blob }); after += e.blob.size; failed++;
+      }
+    }
+
+    // One image out (a single image, or a one-page PDF) downloads as is; anything more becomes a zip.
+    if (s.mode !== "zip" && outs.length === 1 && !failed) {
+      output = { filename: outs[0].path.split("/").pop(), blob: outs[0].blob };
+      $("save").textContent = `Download ${NAME_FOR[s.mime]}`;
+    } else if (outs.length) {
+      setStatus("Packing zip…");
+      const zip = new JSZip();
+      outs.forEach((o) => zip.file(o.path, o.blob));
+      output = { filename: `${sourceName}_${EXT_FOR[s.mime]}.zip`, blob: await zip.generateAsync({ type: "blob", compression: "STORE" }) };
+      $("save").textContent = "Download zip";
+    }
+    $("progress").hidden = true; bar.style.width = "0";
+
+    const sm = $("summary");
+    sm.innerHTML = (s.mode === "pdf" || !ok ? "" : `<span>Converted <b>${ok}</b></span>`) + (pdfPages ? `<span>PDF pages <b>${pdfPages}</b></span>` : "") +
+      (kept ? `<span>Already fit <b>${kept}</b></span>` : "") +
+      (scaled ? `<span>Resized <b>${scaled}</b></span>` : "") + (failed ? `<span>Failed <b>${failed}</b></span>` : "") +
+      `<span>Size <b>${kb(before)}</b> → <b>${kb(after)}</b></span>` + (output ? `<span>Download <b>${kb(output.blob.size)}</b></span>` : "");
+    sm.hidden = false;
+    if (failed) notice(s.mode === "zip"
+      ? `${plural(failed, "file")} couldn't be converted and ${failed === 1 ? "was" : "were"} copied into the zip unchanged. See the table for why.`
+      : `This file couldn't be converted: ${work[0].result.error}`, "bad");
+    if (s.mode !== "zip" && failed) clearOutput();
+    setStatus(failed && s.mode !== "zip" ? "" : "Done.");
+    render(); busy = false; $("convert").disabled = false; $("save").disabled = !output;
+  }
+
+  // Outside claude.ai (e.g. GitHub Pages) a plain browser download works.
+  function browserSave() {
+    const url = URL.createObjectURL(output.blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = output.filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    notice(`Downloaded ${output.filename}.`, "ok");
+  }
+
+  async function save() {
+    if (!output) return;
+    if (!window.claude) return browserSave();
+    let downloads = null;
+    try { downloads = await window.claude?.use?.("downloads"); } catch (_) {}
+    if (!downloads) {
+      notice("Saving isn't available in this view. Open this page on claude.ai to download.", "bad");
+      return;
+    }
+    try {
+      await downloads.save({ filename: output.filename, data: output.blob });
+      notice(`Saved ${output.filename}.`, "ok");
+    } catch (err) {
+      if (err?.code === "declined") notice("Download cancelled.");
+      else if (err?.code === "rate_limited") notice("A save prompt is already open. Finish it, then try again.");
+      else if (err?.code === "too_large") notice("This file is too large to save here. Try a smaller size limit or fewer files.", "bad");
+      else notice("Couldn't save in this view: " + (err?.message || "unknown error"), "bad");
+    }
+  }
+
+  // ---------- table ----------
+  function render() {
+    const tb = $("rows");
+    const s = settings();
+    const shown = entries.filter((e) => isWork(e, s) || s.keepOther);
+    if (!shown.length) {
+      tb.innerHTML = `<tr><td colspan="4" class="empty">Nothing uploaded yet. Add ${MODES[s.mode].noun} in step 3, or load an example to see how it works.</td></tr>`;
+      return;
+    }
+    tb.innerHTML = shown.map((e) => {
+      const parts = e.path.split("/"); const name = parts.pop(); const dir = parts.join("/");
+      const fileCell = `<td class="file">${dir ? `<span class="dir">${esc(dir)}/</span>` : ""}${esc(name)}${e.sample ? ' <span class="example-tag">example</span>' : ""}</td>`;
+      const orig = `<td class="m">${kb(e.blob.size)}<span class="sub">${ext(e.path).toUpperCase() || "—"}</span></td>`;
+      if (!isWork(e, s)) return `<tr>${fileCell}${orig}<td class="m">—</td><td><span class="pill">Copied as is</span></td></tr>`;
+      const r = e.result;
+      if (!r) return `<tr>${fileCell}${orig}<td class="m">—</td><td><span class="pill">Waiting</span></td></tr>`;
+      if (r.state === "run") return `<tr>${fileCell}${orig}<td class="m">…</td><td><span class="pill run">Working</span></td></tr>`;
+      if (r.state === "bad") return `<tr>${fileCell}${orig}<td class="m">—</td><td><span class="pill bad">Failed</span><span class="hint" style="display:block;margin-top:4px">${esc(r.error)}</span></td></tr>`;
+      if (r.pages) {
+        const total = r.pages.reduce((n, p) => n + p.blob.size, 0);
+        const largest = Math.max(...r.pages.map((p) => p.blob.size));
+        const n = r.pages.length, anyScaled = r.pages.some((p) => p.scaled);
+        const sub = `${n} page${n === 1 ? "" : "s"} · ${r.pages[0].w}×${r.pages[0].h}${n > 1 ? ` · largest ${kb(largest)}` : ""}`;
+        const pill = `<span class="pill ${anyScaled ? "warn" : "ok"}">PDF → ${plural(n, "image")}${anyScaled ? " · resized" : ""}</span>`;
+        return `<tr>${fileCell}${orig}<td class="m">${kb(total)}<span class="sub">${sub}</span></td><td>${pill}</td></tr>`;
+      }
+      const q = r.q != null ? ` · q${Math.round(r.q * 100)}` : "";
+      const conv = `<td class="m">${kb(r.blob.size)}<span class="sub">${r.w}×${r.h}${q}</span></td>`;
+      const pill = r.kept ? `<span class="pill">Already fits</span>` : r.scaled ? `<span class="pill warn">Converted · resized</span>` : `<span class="pill ok">Converted</span>`;
+      return `<tr>${fileCell}${orig}${conv}<td>${pill}</td></tr>`;
+    }).join("");
+  }
+
+  // ---------- examples ----------
+  // A tiny two-page A4 PDF, written by hand so the example needs no PDF library.
+  function samplePdf() {
+    const stream = (s) => `<< /Length ${s.length} >>\nstream\n${s}\nendstream`;
+    const page = (contents) => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${contents} 0 R /Resources << /Font << /F1 7 0 R >> >> >>`;
+    const body = (n) => `0.06 0.42 0.36 rg 0 762 595 80 re f BT /F1 26 Tf 1 1 1 rg 56 792 Td (Undertaking Letter - page ${n} of 2) Tj ET ` +
+      `BT /F1 12 Tf 0.2 0.2 0.2 rg 56 700 Td 18 TL (Example document. Each PDF page becomes its own image.) Tj T* (Folders and names stay as they were.) Tj ET`;
+    const objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>",
+      page(4), stream(body(1)), page(6), stream(body(2)), "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+    let out = "%PDF-1.4\n"; const offs = [];
+    objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map((o) => String(o).padStart(10, "0") + " 00000 n \n").join("") +
+      `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return new Blob([out], { type: "application/pdf" });
+  }
+  async function sampleImage(w, h, hue, mime, label) {
+    const c = document.createElement("canvas"); c.width = w; c.height = h; const g = c.getContext("2d");
+    const grad = g.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, `hsl(${hue} 55% 45%)`); grad.addColorStop(1, `hsl(${hue + 60} 60% 70%)`);
+    g.fillStyle = grad; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 2500; i++) { g.fillStyle = `hsla(${(hue + i) % 360} 70% 50% / .35)`; g.fillRect(Math.random() * w, Math.random() * h, 6, 6); }
+    g.fillStyle = "#fff"; g.font = `600 ${Math.round(w / 14)}px sans-serif`; g.fillText(label, w * 0.06, h * 0.15);
+    return await toBlob(c, mime, 0.98);
+  }
+  async function loadSample() {
+    const m = mode();
+    let file;
+    if (m === "image") file = new File([await sampleImage(1600, 1100, 220, "image/png", "Passport")], "Passport.png", { type: "image/png" });
+    else if (m === "pdf") file = new File([samplePdf()], "Undertaking Letter.pdf", { type: "application/pdf" });
+    else {
+      const zip = new JSZip();
+      zip.file("Example docs/Application.webp", await sampleImage(1240, 1754, 170, "image/webp", "Application"));
+      zip.file("Example docs/Trade License.webp", await sampleImage(1240, 1754, 30, "image/webp", "Trade License"));
+      zip.file("Example docs/Passport.png", await sampleImage(1600, 1100, 220, "image/png", "Passport"));
+      zip.file("Example docs/Photo.jpg", await sampleImage(600, 800, 300, "image/jpeg", "Photo"));
+      zip.file("Example docs/Undertaking Letter.pdf", samplePdf());
+      zip.file("Example docs/notes.txt", "Example file. Non-image files are copied as they are.");
+      file = new File([await zip.generateAsync({ type: "blob" })], "Example docs.zip", { type: "application/zip" });
+    }
+    await loadFiles([file], true);
+  }
+
+  // ---------- wiring ----------
+  const drop = $("drop");
+  drop.addEventListener("click", () => $("file").click());
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+  $("file").addEventListener("change", (e) => { loadFiles(e.target.files); e.target.value = ""; });
+  ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => loadFiles(e.dataTransfer.files));
+  $("convert").addEventListener("click", run);
+  $("save").addEventListener("click", save);
+  $("sample").addEventListener("click", () => loadSample().then(run).catch(() => {}));
+
+  try { const saved = localStorage.getItem("zic-mode"); if (saved && MODES[saved]) $("mode-" + saved).checked = true; } catch (_) {}
+  applyMode(false);
+  // Open in a working state: load and convert an example for the chosen mode.
+  if (window.JSZip) loadSample().then(run).catch(() => {});
+  else notice("The zip library didn't load. Check your connection and reload the page.", "bad");
+})();
+</script>
+</body>
+</html>
